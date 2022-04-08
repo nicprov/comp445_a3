@@ -6,7 +6,7 @@ ROUTER_PORT = 3000
 
 def main():
     t = TCP(ROUTER_IP, ROUTER_PORT)
-    t.bind(3002)
+    t.listen(3002)
 
 
 

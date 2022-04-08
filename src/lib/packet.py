@@ -50,13 +50,10 @@ class Packet:
     @staticmethod
     def from_bytes(raw):
         """from_bytes creates a packet from the given raw buffer.
-
             Args:
                 raw: a bytearray that is the raw-representation of the packet in big-endian order.
-
             Returns:
                 a packet from the given raw bytes.
-
             Raises:
                 ValueError: if packet is too short or too long or invalid peer address.
         """

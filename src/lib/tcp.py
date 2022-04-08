@@ -12,7 +12,7 @@ class TCPMode(Enum):
 
 
 class TCP:
-    def __init__(self, router_ip, router_port, timeout=30):
+    def __init__(self, router_ip, router_port, timeout=300):
         self.router_ip = router_ip
         self.router_port = router_port
 
@@ -21,17 +21,22 @@ class TCP:
 
         self.conn = None
         self.ip = None
-        self.port = None
+        self.s_port = None
+        self.r_port = None
 
-    def connect(self, port):
+    def connect(self, s_port, r_port):
         """
         Establish connection with receiver
+        :param s_port: Source port to bind to
+        :param r_port: Receiver port
         :return:
         """
-        self.ip = ipaddress.ip_address(socket.gethostbyname("localhost"))
-        self.port = port
+        self.s_port = s_port
+        self.r_port = r_port
 
+        self.ip = ipaddress.ip_address(socket.gethostbyname("localhost"))
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.conn.bind(("", self.s_port))
         self.conn.settimeout(self.timeout)
 
         try:
@@ -39,7 +44,7 @@ class TCP:
             self.conn.sendto(Packet(packet_type=PacketType.SYN,
                                     seq_num=1,
                                     peer_ip_addr=self.ip,
-                                    peer_port=self.port,
+                                    peer_port=self.r_port,
                                     payload=b'').to_bytes(), (self.router_ip, self.router_port))
 
             # Receive SYN-ACK packet
@@ -50,7 +55,7 @@ class TCP:
                 self.conn.sendto(Packet(packet_type=PacketType.ACK,
                                         seq_num=p.seq_num + 1,
                                         peer_ip_addr=self.ip,
-                                        peer_port=self.port,
+                                        peer_port=self.r_port,
                                         payload=b'').to_bytes(), (self.router_ip, self.router_port))
                 self.connected = True
                 print("Connected to server")
@@ -59,29 +64,33 @@ class TCP:
         except socket.timeout:
             print("No response from server, timed out")
 
-    def bind(self, port):
+    def listen(self, port):
         """
         Listen for incoming connection with sender
+        :param port: Port to bind to
         :return:
         """
+        self.ip = ipaddress.ip_address(socket.gethostbyname("localhost"))
+        self.s_port = port
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.conn.bind(("", port))
+        self.conn.bind(("", self.s_port))
         self.conn.settimeout(self.timeout)
 
-        print("Listening on: %s" % port)
+        print("Listening on: %s" % self.s_port)
 
         try:
             # Receive SYN packet
             data, addr = self.conn.recvfrom(BUFFER_SIZE)
-            self.ip = ipaddress.ip_address(socket.gethostbyname("localhost"))
 
             p = Packet.from_bytes(data)
+            print(p)
+            self.r_port = p.peer_port
             if PacketType(p.packet_type) == PacketType.SYN:
                 # Send SYN-ACK packet
                 self.conn.sendto(Packet(packet_type=PacketType.SYN_ACK,
                                         seq_num=p.seq_num,
                                         peer_ip_addr=self.ip,
-                                        peer_port=p.peer_port,
+                                        peer_port=self.r_port,
                                         payload=b'').to_bytes(), (self.router_ip, self.router_port))
 
                 # Wait for ACK packet
