@@ -1,9 +1,12 @@
 import socket
+import sys
 from enum import Enum
 import ipaddress
 from .packet import Packet, PacketType
+from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
+MAX_MSG_SIZE = 1013
 
 
 class TCPMode(Enum):
@@ -23,6 +26,9 @@ class TCP:
         self.ip = None
         self.s_port = None
         self.r_port = None
+
+        self.s_buffer = None
+        self.r_buffer = None
 
     def connect(self, s_port, r_port):
         """
@@ -61,8 +67,10 @@ class TCP:
                 print("Connected to server")
             else:
                 print("Error, unable to establish connection, server is misbehaving")
+                sys.exit(1)
         except socket.timeout:
             print("No response from server, timed out")
+            sys.exit(1)
 
     def listen(self, port):
         """
@@ -101,22 +109,95 @@ class TCP:
                     print("Connected to client")
                 else:
                     print("Unable to connect to client, invalid packet received")
+                    sys.exit(1)
             else:
                 print("Unable to connect to client, invalid packet received")
+                sys.exit(1)
 
         except socket.timeout:
             print("No response from client, timed out")
+            sys.exit(1)
 
     def recv(self):
-        """
-        Mode must be receiver
-        :return:
-        """
-        return self.conn.recvfrom(BUFFER_SIZE)
+        done = False
+        window = ReceiverWindow()
 
-    def send(self):
+        while not done:
+            # Read incoming packets
+            data, _ = self.conn.recvfrom(BUFFER_SIZE)
+            p = Packet.from_bytes(data)
+            if not PacketType(p.packet_type) == PacketType.DONE:
+                f = Frame(p.payload)
+                window.frame_received(f)
+
+                # Send ack when received
+                self.conn.sendto(Packet(packet_type=PacketType.ACK,
+                                        seq_num=p.seq_num,
+                                        peer_ip_addr=self.ip,
+                                        peer_port=self.r_port,
+                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
+            else:
+                # Send ack_done when received done packet
+                self.conn.sendto(Packet(packet_type=PacketType.ACK_DONE,
+                                        seq_num=p.seq_num,
+                                        peer_ip_addr=self.ip,
+                                        peer_port=self.r_port,
+                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
+                done = True
+
+        # When "done" packet received, reconstruct message and deliver
+        return window.reconstruct()
+
+    def send(self, msg):
         """
-        Mode must be sender
+
+        :param msg: Message to send
         :return:
         """
-        return 1
+        # Break up message into 1013 bytes max
+        frames = self.split_message(msg.encode("utf-8"))
+        num_frames = len(frames)
+        counter = 0
+        window = SenderWindow()
+
+        while counter <= num_frames:
+            frame = frames[counter]
+            seq_num = window.add_frame(frame)
+            if seq_num is not None:
+                # Window is not full, so send packet
+                print("Sending frame #%s" % seq_num)
+                self.conn.sendto(Packet(packet_type=PacketType.DATA,
+                                        seq_num=seq_num,
+                                        peer_ip_addr=self.ip,
+                                        peer_port=self.r_port,
+                                        payload=frame).to_bytes(), (self.router_ip, self.router_port))
+            else:
+                # Window is full, check for incoming acks
+                data, _ = self.conn.recvfrom(BUFFER_SIZE)
+                p = Packet.from_bytes(data)
+                if PacketType(p.packet_type) == PacketType.ACK:
+                    window.ack_received(p.seq_num)
+                else:
+                    print("Invalid packet response from server")
+                    sys.exit(1)
+
+
+        done_ack_received = False
+
+        while not done_ack_received:
+            # When done, send flag done
+            self.conn.sendto(Packet(packet_type=PacketType.DONE,
+                                    seq_num=seq_num,
+                                    peer_ip_addr=self.ip,
+                                    peer_port=self.r_port,
+                                    payload=b'').to_bytes(), (self.router_ip, self.router_port))
+
+            data, _ = self.conn.recvfrom(BUFFER_SIZE)
+            p = Packet.from_bytes(data)
+            if PacketType(p.packet_type) == PacketType.ACK_DONE:
+                done_ack_received = True
+                print("Receiver successfully received entire message")
+
+
+    def split_message(self, msg, n=MAX_MSG_SIZE):
+        return [msg[i:min(len(msg), i+n)] for i in range(0, len(msg.encode()), n)]

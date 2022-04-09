@@ -11,8 +11,8 @@ class PacketType(Enum):
     ACK = 2
     NAK = 3
     DATA = 4
-    FINAL_SENT = 5
-    FINAL_RECEIVE = 6
+    DONE = 5
+    ACK_DONE = 6
 
     def __int__(self):
         return self.value
