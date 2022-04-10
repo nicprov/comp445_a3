@@ -6,7 +6,7 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 1
+MAX_MSG_SIZE = 1013
 
 
 class TCPMode(Enum):
