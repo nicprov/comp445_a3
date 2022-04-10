@@ -7,6 +7,8 @@ from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
 MAX_MSG_SIZE = 1013
+TIMEOUT = 1
+SERVER_TIMEOUT = 10
 
 
 class TCPMode(Enum):
@@ -15,7 +17,7 @@ class TCPMode(Enum):
 
 
 class TCP:
-    def __init__(self, router_ip, router_port, timeout=300):
+    def __init__(self, router_ip, router_port, timeout=TIMEOUT):
         self.router_ip = router_ip
         self.router_port = router_port
 
@@ -45,32 +47,37 @@ class TCP:
         self.conn.bind(("", self.s_port))
         self.conn.settimeout(self.timeout)
 
-        try:
-            # Send SYN packet
-            self.conn.sendto(Packet(packet_type=PacketType.SYN,
-                                    seq_num=1,
-                                    peer_ip_addr=self.ip,
-                                    peer_port=self.r_port,
-                                    payload=b'').to_bytes(), (self.router_ip, self.router_port))
+        syn_p = Packet(packet_type=PacketType.SYN,
+                       seq_num=1,
+                       peer_ip_addr=self.ip,
+                       peer_port=self.r_port,
+                       payload=b'').to_bytes()
+        syn_ack_received = False
 
-            # Receive SYN-ACK packet
-            response, sender = self.conn.recvfrom(BUFFER_SIZE)
-            p = Packet.from_bytes(response)
-            if PacketType(p.packet_type) == PacketType.SYN_ACK:
-                # Send ACK packet
-                self.conn.sendto(Packet(packet_type=PacketType.ACK,
-                                        seq_num=p.seq_num + 1,
-                                        peer_ip_addr=self.ip,
-                                        peer_port=self.r_port,
-                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
-                self.connected = True
-                print("Connected to server")
-            else:
-                print("Error, unable to establish connection, server is misbehaving")
-                sys.exit(1)
-        except socket.timeout:
-            print("No response from server, timed out")
-            sys.exit(1)
+        while not syn_ack_received:
+            try:
+                # Send SYN packet
+                print("Sending SYN")
+                self.conn.sendto(syn_p, (self.router_ip, self.router_port))
+
+                # Receive SYN-ACK packet
+                response, sender = self.conn.recvfrom(BUFFER_SIZE)
+                p = Packet.from_bytes(response)
+                if PacketType(p.packet_type) == PacketType.SYN_ACK:
+                    # Send ACK packet
+                    self.conn.sendto(Packet(packet_type=PacketType.ACK,
+                                            seq_num=p.seq_num + 1,
+                                            peer_ip_addr=self.ip,
+                                            peer_port=self.r_port,
+                                            payload=b'').to_bytes(), (self.router_ip, self.router_port))
+                    self.connected = True
+                    syn_ack_received = True
+                    print("Connected to server")
+                else:
+                    print("Error, unable to establish connection, server is misbehaving")
+                    sys.exit(1)
+            except socket.timeout:
+                print("No response from server, retrying...")
 
     def listen(self, port):
         """
@@ -82,40 +89,40 @@ class TCP:
         self.s_port = port
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.conn.bind(("", self.s_port))
-        self.conn.settimeout(self.timeout)
+        self.conn.settimeout(SERVER_TIMEOUT)
 
         print("Listening on: %s" % self.s_port)
 
-        try:
-            # Receive SYN packet
-            data, addr = self.conn.recvfrom(BUFFER_SIZE)
+        syn_received = False
+        ack_received = False
 
-            p = Packet.from_bytes(data)
-            self.r_port = p.peer_port
-            if PacketType(p.packet_type) == PacketType.SYN:
-                # Send SYN-ACK packet
-                self.conn.sendto(Packet(packet_type=PacketType.SYN_ACK,
-                                        seq_num=p.seq_num,
-                                        peer_ip_addr=self.ip,
-                                        peer_port=self.r_port,
-                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
-
-                # Wait for ACK packet
+        while not (syn_received and ack_received):
+            try:
+                # Receive SYN packet
                 data, _ = self.conn.recvfrom(BUFFER_SIZE)
+
                 p = Packet.from_bytes(data)
-                if PacketType(p.packet_type) == PacketType.ACK:
+                self.r_port = p.peer_port
+                if PacketType(p.packet_type) == PacketType.SYN:
+                    # Send SYN-ACK packet
+                    self.conn.sendto(Packet(packet_type=PacketType.SYN_ACK,
+                                            seq_num=p.seq_num,
+                                            peer_ip_addr=self.ip,
+                                            peer_port=self.r_port,
+                                            payload=b'').to_bytes(), (self.router_ip, self.router_port))
+                    syn_received = True
+
+                elif PacketType(p.packet_type) == PacketType.ACK:
                     self.connected = True
+                    ack_received = True
                     print("Connected to client")
+
                 else:
                     print("Unable to connect to client, invalid packet received")
                     sys.exit(1)
-            else:
-                print("Unable to connect to client, invalid packet received")
-                sys.exit(1)
 
-        except socket.timeout:
-            print("No response from client, timed out")
-            sys.exit(1)
+            except socket.timeout:
+                print("Nothing received from client, waiting...")
 
     def recv(self):
         done = False
@@ -180,7 +187,6 @@ class TCP:
                     print("Invalid packet response from server")
                     sys.exit(1)
 
-
         done_ack_received = False
 
         while not done_ack_received:
@@ -191,12 +197,14 @@ class TCP:
                                     peer_port=self.r_port,
                                     payload=b'').to_bytes(), (self.router_ip, self.router_port))
 
-            data, _ = self.conn.recvfrom(BUFFER_SIZE)
-            p = Packet.from_bytes(data)
-            if PacketType(p.packet_type) == PacketType.ACK_DONE:
-                done_ack_received = True
-                print("Receiver successfully received entire message")
-
+            try:
+                data, _ = self.conn.recvfrom(BUFFER_SIZE)
+                p = Packet.from_bytes(data)
+                if PacketType(p.packet_type) == PacketType.ACK_DONE:
+                    done_ack_received = True
+                    print("Receiver successfully received entire message")
+            except socket.timeout:
+                print("Timed out, retrying...")
 
     def split_message(self, msg, n=MAX_MSG_SIZE):
-        return [msg[i:min(len(msg), i+n)] for i in range(0, len(msg), n)]
+        return [msg[i:min(len(msg), i + n)] for i in range(0, len(msg), n)]
