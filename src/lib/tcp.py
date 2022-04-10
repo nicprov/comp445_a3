@@ -170,6 +170,7 @@ class TCP:
                                         peer_ip_addr=self.ip,
                                         peer_port=self.r_port,
                                         payload=part).to_bytes(), (self.router_ip, self.router_port))
+                counter += 1
             else:
                 # Window is full, check for incoming acks
                 data, _ = self.conn.recvfrom(BUFFER_SIZE)
@@ -179,7 +180,6 @@ class TCP:
                 else:
                     print("Invalid packet response from server")
                     sys.exit(1)
-            counter += 1
 
 
         done_ack_received = False

@@ -25,7 +25,7 @@ class Window:
     def __init__(self):
         self.size = int(MAX_SEQUENCE_NUM/2)
         self.buffer = []  # Used to buffer frames until they are all received
-        self.window = [None] * self.size  # Used to store frames until they are added to the buffer
+        self.window = [None] * (self.size + 1)  # Used to store frames until they are added to the buffer
 
 
 class ReceiverWindow(Window):
