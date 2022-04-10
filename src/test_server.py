@@ -8,8 +8,8 @@ def main():
     t = TCP(ROUTER_IP, ROUTER_PORT)
     t.listen(3002)
 
-
-
+    msg = t.recv()
+    print(msg)
 
 
 if __name__ == "__main__":

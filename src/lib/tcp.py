@@ -91,7 +91,6 @@ class TCP:
             data, addr = self.conn.recvfrom(BUFFER_SIZE)
 
             p = Packet.from_bytes(data)
-            print(p)
             self.r_port = p.peer_port
             if PacketType(p.packet_type) == PacketType.SYN:
                 # Send SYN-ACK packet
@@ -128,7 +127,7 @@ class TCP:
             p = Packet.from_bytes(data)
             if not PacketType(p.packet_type) == PacketType.DONE:
                 f = Frame(p.payload)
-                window.frame_received(f)
+                window.frame_received(f, p.seq_num)
 
                 # Send ack when received
                 self.conn.sendto(Packet(packet_type=PacketType.ACK,
@@ -155,14 +154,14 @@ class TCP:
         :return:
         """
         # Break up message into 1013 bytes max
-        frames = self.split_message(msg.encode("utf-8"))
-        num_frames = len(frames)
+        parts = self.split_message(msg.encode("utf-8"))
+        num_frames = len(parts)
         counter = 0
         window = SenderWindow()
 
-        while counter <= num_frames:
-            frame = frames[counter]
-            seq_num = window.add_frame(frame)
+        while counter < num_frames:
+            part = parts[counter]
+            seq_num = window.add_part(part)
             if seq_num is not None:
                 # Window is not full, so send packet
                 print("Sending frame #%s" % seq_num)
@@ -170,7 +169,7 @@ class TCP:
                                         seq_num=seq_num,
                                         peer_ip_addr=self.ip,
                                         peer_port=self.r_port,
-                                        payload=frame).to_bytes(), (self.router_ip, self.router_port))
+                                        payload=part).to_bytes(), (self.router_ip, self.router_port))
             else:
                 # Window is full, check for incoming acks
                 data, _ = self.conn.recvfrom(BUFFER_SIZE)
@@ -180,6 +179,7 @@ class TCP:
                 else:
                     print("Invalid packet response from server")
                     sys.exit(1)
+            counter += 1
 
 
         done_ack_received = False
@@ -187,7 +187,7 @@ class TCP:
         while not done_ack_received:
             # When done, send flag done
             self.conn.sendto(Packet(packet_type=PacketType.DONE,
-                                    seq_num=seq_num,
+                                    seq_num=0,
                                     peer_ip_addr=self.ip,
                                     peer_port=self.r_port,
                                     payload=b'').to_bytes(), (self.router_ip, self.router_port))
@@ -200,4 +200,4 @@ class TCP:
 
 
     def split_message(self, msg, n=MAX_MSG_SIZE):
-        return [msg[i:min(len(msg), i+n)] for i in range(0, len(msg.encode()), n)]
+        return [msg[i:min(len(msg), i+n)] for i in range(0, len(msg), n)]
