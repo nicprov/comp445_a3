@@ -6,7 +6,7 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 1013
+MAX_MSG_SIZE = 1
 
 
 class TCPMode(Enum):
@@ -149,7 +149,6 @@ class TCP:
 
     def send(self, msg):
         """
-
         :param msg: Message to send
         :return:
         """

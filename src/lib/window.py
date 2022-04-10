@@ -51,7 +51,7 @@ class ReceiverWindow(Window):
             if frame is not None:
                 if seq_num == self.rcv_base:
                     self.buffer.append(frame)
-                    frame = None
+                    self.window[seq_num] = None
                     self.rcv_base = (self.rcv_base + 1) % (self.size + 1)
             seq_num += 1
 
