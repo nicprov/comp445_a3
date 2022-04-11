@@ -35,10 +35,7 @@ class ReceiverWindow(Window):
         super(ReceiverWindow, self).__init__()
 
     def frame_received(self, frame):
-        valid_range = self.valid_seq_num_range()
-        if frame.seq_num not in self.valid_seq_num_range():
-            print("Received frame outside of window, no room in buffer...")
-        else:
+        if frame.seq_num in self.valid_seq_num_range():
             self.window[frame.seq_num] = frame
             self.slide()
 
@@ -101,7 +98,7 @@ class SenderWindow(Window):
             return seq_num
 
     def get_window_frames(self):
-        return [f for f in self.window if f is not None and not f.acknowledged]
+        return [f for f in self.window if f is not None]
 
     def get_max_sequence_num(self):
         return [num % (MAX_SEQUENCE_NUM) for num in range(self.send_base, self.send_base + self.size - 1)][-1]

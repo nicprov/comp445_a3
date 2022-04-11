@@ -103,8 +103,8 @@ class TCP:
 
                 p = Packet.from_bytes(data)
                 self.r_port = p.peer_port
-                if PacketType(p.packet_type) == PacketType.SYN:
-                    # Send SYN-ACK packet
+                if PacketType(p.packet_type) in [PacketType.SYN, PacketType.DATA]:
+                    # Send SYN-ACK packet if SYN received or if client ACK got lost
                     self.conn.sendto(Packet(packet_type=PacketType.SYN_ACK,
                                             seq_num=p.seq_num,
                                             peer_ip_addr=self.ip,
@@ -118,6 +118,7 @@ class TCP:
                     print("Connected to client")
 
                 else:
+                    print(p)
                     print("Unable to connect to client, invalid packet received")
                     sys.exit(1)
 
@@ -144,6 +145,7 @@ class TCP:
                                             peer_ip_addr=self.ip,
                                             peer_port=self.r_port,
                                             payload=b'').to_bytes(), (self.router_ip, self.router_port))
+
                 else:
                     # Send ack_done when received done packet
                     self.conn.sendto(Packet(packet_type=PacketType.ACK_DONE,
@@ -189,6 +191,13 @@ class TCP:
                     p = Packet.from_bytes(data)
                     if PacketType(p.packet_type) == PacketType.ACK:
                         window.ack_received(p.seq_num)
+                    elif PacketType(p.packet_type) == PacketType.SYN_ACK:
+                        # Server resent SYN_ACK because previous ACK got lost, so resend ACK
+                        self.conn.sendto(Packet(packet_type=PacketType.ACK,
+                                                seq_num=p.seq_num,
+                                                peer_ip_addr=self.ip,
+                                                peer_port=self.r_port,
+                                                payload=b'').to_bytes(), (self.router_ip, self.router_port))
                     else:
                         print("Invalid packet response from server")
                         sys.exit(1)
