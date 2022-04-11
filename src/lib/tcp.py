@@ -6,9 +6,9 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 1013
+MAX_MSG_SIZE = 1
 TIMEOUT = 1
-SERVER_TIMEOUT = 10
+INITIAL_TIMEOUT = 10
 
 
 class TCPMode(Enum):
@@ -89,7 +89,7 @@ class TCP:
         self.s_port = port
         self.conn = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.conn.bind(("", self.s_port))
-        self.conn.settimeout(SERVER_TIMEOUT)
+        self.conn.settimeout(INITIAL_TIMEOUT)
 
         print("Listening on: %s" % self.s_port)
 
@@ -129,27 +129,31 @@ class TCP:
         window = ReceiverWindow()
 
         while not done:
-            # Read incoming packets
-            data, _ = self.conn.recvfrom(BUFFER_SIZE)
-            p = Packet.from_bytes(data)
-            if not PacketType(p.packet_type) == PacketType.DONE:
-                f = Frame(p.payload)
-                window.frame_received(f, p.seq_num)
+            try:
+                # Read incoming packets
+                self.conn.settimeout(TIMEOUT)
+                data, _ = self.conn.recvfrom(BUFFER_SIZE)
+                p = Packet.from_bytes(data)
+                if not PacketType(p.packet_type) == PacketType.DONE:
+                    f = Frame(p.payload, p.seq_num)
+                    window.frame_received(f)
 
-                # Send ack when received
-                self.conn.sendto(Packet(packet_type=PacketType.ACK,
-                                        seq_num=p.seq_num,
-                                        peer_ip_addr=self.ip,
-                                        peer_port=self.r_port,
-                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
-            else:
-                # Send ack_done when received done packet
-                self.conn.sendto(Packet(packet_type=PacketType.ACK_DONE,
-                                        seq_num=p.seq_num,
-                                        peer_ip_addr=self.ip,
-                                        peer_port=self.r_port,
-                                        payload=b'').to_bytes(), (self.router_ip, self.router_port))
-                done = True
+                    # Send ack when received
+                    self.conn.sendto(Packet(packet_type=PacketType.ACK,
+                                            seq_num=p.seq_num,
+                                            peer_ip_addr=self.ip,
+                                            peer_port=self.r_port,
+                                            payload=b'').to_bytes(), (self.router_ip, self.router_port))
+                else:
+                    # Send ack_done when received done packet
+                    self.conn.sendto(Packet(packet_type=PacketType.ACK_DONE,
+                                            seq_num=p.seq_num,
+                                            peer_ip_addr=self.ip,
+                                            peer_port=self.r_port,
+                                            payload=b'').to_bytes(), (self.router_ip, self.router_port))
+                    done = True
+            except socket.timeout:
+                print("Timed out...waiting for packet")
 
         # When "done" packet received, reconstruct message and deliver
         return window.reconstruct()
@@ -167,7 +171,7 @@ class TCP:
 
         while counter < num_frames:
             part = parts[counter]
-            seq_num = window.add_part(part)
+            seq_num = window.add_part(parts[counter])
             if seq_num is not None:
                 # Window is not full, so send packet
                 print("Sending frame #%s" % seq_num)
@@ -178,14 +182,26 @@ class TCP:
                                         payload=part).to_bytes(), (self.router_ip, self.router_port))
                 counter += 1
             else:
-                # Window is full, check for incoming acks
-                data, _ = self.conn.recvfrom(BUFFER_SIZE)
-                p = Packet.from_bytes(data)
-                if PacketType(p.packet_type) == PacketType.ACK:
-                    window.ack_received(p.seq_num)
-                else:
-                    print("Invalid packet response from server")
-                    sys.exit(1)
+                try:
+                    # Window is full, check for incoming acks
+                    self.conn.settimeout(TIMEOUT)
+                    data, _ = self.conn.recvfrom(BUFFER_SIZE)
+                    p = Packet.from_bytes(data)
+                    if PacketType(p.packet_type) == PacketType.ACK:
+                        window.ack_received(p.seq_num)
+                    else:
+                        print("Invalid packet response from server")
+                        sys.exit(1)
+                except socket.timeout:
+                    # Resend all the packets not acknowledged in the window
+                    frames = window.get_window_frames()
+                    for frame in frames:
+                        print("Re-Sending frame #%s" % frame.seq_num)
+                        self.conn.sendto(Packet(packet_type=PacketType.DATA,
+                                                seq_num=frame.seq_num,
+                                                peer_ip_addr=self.ip,
+                                                peer_port=self.r_port,
+                                                payload=frame.data).to_bytes(), (self.router_ip, self.router_port))
 
         done_ack_received = False
 

@@ -5,7 +5,8 @@ MAX_SEQUENCE_NUM = 10
 
 
 class Frame:
-    def __init__(self, data):
+    def __init__(self, data, seq_num):
+        self.seq_num = seq_num
         self.data = data
         self.acknowledged = False
         self.time = None
@@ -25,7 +26,7 @@ class Window:
     def __init__(self):
         self.size = int(MAX_SEQUENCE_NUM/2)
         self.buffer = []  # Used to buffer frames until they are all received
-        self.window = [None] * (self.size + 1)  # Used to store frames until they are added to the buffer
+        self.window = [None] * (MAX_SEQUENCE_NUM)  # Used to store frames until they are added to the buffer
 
 
 class ReceiverWindow(Window):
@@ -33,16 +34,17 @@ class ReceiverWindow(Window):
         self.rcv_base = 0
         super(ReceiverWindow, self).__init__()
 
-    def frame_received(self, frame, seq_num):
-        if seq_num not in self.valid_seq_num_range():
+    def frame_received(self, frame):
+        valid_range = self.valid_seq_num_range()
+        if frame.seq_num not in self.valid_seq_num_range():
             print("Received frame outside of window, no room in buffer...")
         else:
-            self.window[seq_num] = frame
+            self.window[frame.seq_num] = frame
             self.slide()
 
     def slide(self):
         """
-        Check each frame, if a frame exist which the same seq_num as the recv_base, then it was received
+        Check each frame, if a frame exist with the same seq_num as the recv_base, then it was received
         Hence the recv_base can increase
         :return:
         """
@@ -52,7 +54,7 @@ class ReceiverWindow(Window):
                 if seq_num == self.rcv_base:
                     self.buffer.append(frame)
                     self.window[seq_num] = None
-                    self.rcv_base = (self.rcv_base + 1) % (self.size + 1)
+                    self.rcv_base = (self.rcv_base + 1) % (MAX_SEQUENCE_NUM)
             seq_num += 1
 
     def valid_seq_num_range(self):
@@ -86,17 +88,20 @@ class SenderWindow(Window):
             if frame is not None:
                 if frame.acknowledged and seq_num == self.send_base:
                     frame = None
-                    self.send_base = (self.send_base + 1) % (self.size + 1)
+                    self.send_base = (self.send_base + 1) % (MAX_SEQUENCE_NUM)
             seq_num += 1
 
     def add_part(self, part):
         if self.next_seq_num == self.get_max_sequence_num():
             return None
         else:
-            self.window.insert(self.next_seq_num, Frame(part))
             seq_num = self.next_seq_num
-            self.next_seq_num = (self.next_seq_num + 1) % (self.size + 1)
+            self.window.insert(self.next_seq_num, Frame(part, seq_num))
+            self.next_seq_num = (self.next_seq_num + 1) % (MAX_SEQUENCE_NUM)
             return seq_num
 
+    def get_window_frames(self):
+        return [f for f in self.window if f is not None and not f.acknowledged]
+
     def get_max_sequence_num(self):
-        return [num % (MAX_SEQUENCE_NUM + 1) for num in range(self.send_base, self.send_base + self.size - 1)][-1]
+        return [num % (MAX_SEQUENCE_NUM) for num in range(self.send_base, self.send_base + self.size - 1)][-1]
