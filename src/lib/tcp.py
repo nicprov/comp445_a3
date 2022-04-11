@@ -6,8 +6,8 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 50
-TIMEOUT = 1
+MAX_MSG_SIZE = 1
+TIMEOUT = 0.01
 INITIAL_TIMEOUT = 10
 MAX_RETRIES = 3
 
@@ -135,6 +135,7 @@ class TCP:
                 self.conn.settimeout(TIMEOUT)
                 data, _ = self.conn.recvfrom(BUFFER_SIZE)
                 p = Packet.from_bytes(data)
+                print("Received packet: #%s" % p.seq_num)
                 if not PacketType(p.packet_type) == PacketType.DONE:
                     f = Frame(p.payload, p.seq_num)
                     window.frame_received(f)
@@ -171,9 +172,13 @@ class TCP:
         counter = 0
         window = SenderWindow()
 
-        while counter < num_frames:
-            part = parts[counter]
-            seq_num = window.add_part(parts[counter])
+        while (counter < num_frames) or len(window.get_window_frames()) > 0:
+            if counter < num_frames:
+                part = parts[counter]
+                seq_num = window.add_part(parts[counter])
+            else:
+                seq_num = None
+
             if seq_num is not None:
                 # Window is not full, so send packet
                 print("Sending frame #%s" % seq_num)
@@ -201,16 +206,9 @@ class TCP:
                     else:
                         print("Invalid packet response from server")
                         sys.exit(1)
+
                 except socket.timeout:
-                    # Resend all the packets not acknowledged in the window
-                    frames = window.get_window_frames()
-                    for frame in frames:
-                        print("Re-Sending frame #%s" % frame.seq_num)
-                        self.conn.sendto(Packet(packet_type=PacketType.DATA,
-                                                seq_num=frame.seq_num,
-                                                peer_ip_addr=self.ip,
-                                                peer_port=self.r_port,
-                                                payload=frame.data).to_bytes(), (self.router_ip, self.router_port))
+                    self.resend_frames(window)
 
         done_ack_received = False
 
@@ -234,8 +232,25 @@ class TCP:
                 print("Timed out, retrying...")
                 if retry_count < MAX_RETRIES:
                     retry_count += 1
+                    # When done, send flag done
+                    self.conn.sendto(Packet(packet_type=PacketType.DONE,
+                                            seq_num=0,
+                                            peer_ip_addr=self.ip,
+                                            peer_port=self.r_port,
+                                            payload=b'').to_bytes(), (self.router_ip, self.router_port))
                 else:
                     done_ack_received = True
 
     def split_message(self, msg, n=MAX_MSG_SIZE):
         return [msg[i:min(len(msg), i + n)] for i in range(0, len(msg), n)]
+
+    def resend_frames(self, window):
+        # Resend all the packets not acknowledged in the window
+        frames = window.get_window_frames()
+        for frame in frames:
+            print("Re-Sending frame #%s" % frame.seq_num)
+            self.conn.sendto(Packet(packet_type=PacketType.DATA,
+                                    seq_num=frame.seq_num,
+                                    peer_ip_addr=self.ip,
+                                    peer_port=self.r_port,
+                                    payload=frame.data).to_bytes(), (self.router_ip, self.router_port))
