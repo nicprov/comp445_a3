@@ -5,9 +5,9 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 10
+MAX_MSG_SIZE = 25
 TIMEOUT = 1
-INITIAL_TIMEOUT = 10
+INITIAL_TIMEOUT = 2
 MAX_RETRIES = 3
 
 
@@ -86,7 +86,7 @@ class TCP:
         self.conn.bind(("", self.s_port))
         self.conn.settimeout(INITIAL_TIMEOUT)
 
-        print("Listening on: %s" % self.s_port)
+        # print("Listening on: %s" % self.s_port)
 
         syn_received = False
         ack_received = False
@@ -95,7 +95,6 @@ class TCP:
             try:
                 # Receive SYN packet
                 data, _ = self.conn.recvfrom(BUFFER_SIZE)
-
                 p = Packet.from_bytes(data)
                 self.r_port = p.peer_port
                 if PacketType(p.packet_type) in [PacketType.SYN, PacketType.DATA]:
@@ -113,7 +112,6 @@ class TCP:
                     print("Connected to client")
 
                 else:
-                    print(p)
                     print("Unable to connect to client, invalid packet received")
                     sys.exit(1)
 
@@ -162,7 +160,7 @@ class TCP:
         :return:
         """
         # Break up message into 1013 bytes max
-        parts = self.split_message(msg.encode("utf-8"))
+        parts = self.split_message(msg)
         num_frames = len(parts)
         counter = 0
         window = SenderWindow()
@@ -200,7 +198,6 @@ class TCP:
                                                 payload=b'').to_bytes(), (self.router_ip, self.router_port))
                     else:
                         print("Invalid packet response from server")
-                        sys.exit(1)
 
 
                     # Window is full, check for timed out packets,
