@@ -6,10 +6,10 @@ from .packet import Packet, PacketType
 from .window import ReceiverWindow, SenderWindow, Frame
 
 BUFFER_SIZE = 1024
-MAX_MSG_SIZE = 1
+MAX_MSG_SIZE = 50
 TIMEOUT = 1
 INITIAL_TIMEOUT = 10
-
+MAX_RETRIES = 3
 
 class TCPMode(Enum):
     SENDER = 1
@@ -214,6 +214,8 @@ class TCP:
 
         done_ack_received = False
 
+        retry_count = 0
+
         while not done_ack_received:
             # When done, send flag done
             self.conn.sendto(Packet(packet_type=PacketType.DONE,
@@ -230,6 +232,10 @@ class TCP:
                     print("Receiver successfully received entire message")
             except socket.timeout:
                 print("Timed out, retrying...")
+                if retry_count < MAX_RETRIES:
+                    retry_count += 1
+                else:
+                    done_ack_received = True
 
     def split_message(self, msg, n=MAX_MSG_SIZE):
         return [msg[i:min(len(msg), i + n)] for i in range(0, len(msg), n)]

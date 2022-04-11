@@ -76,15 +76,13 @@ class SenderWindow(Window):
         if frame is not None:
             frame.acknowledged = True
             self.slide()
-        else:
-            print("Received ack for invalid packet")
 
     def slide(self):
         seq_num = 0
         for frame in self.window:
             if frame is not None:
                 if frame.acknowledged and seq_num == self.send_base:
-                    frame = None
+                    self.window[seq_num] = None
                     self.send_base = (self.send_base + 1) % (MAX_SEQUENCE_NUM)
             seq_num += 1
 
@@ -93,7 +91,7 @@ class SenderWindow(Window):
             return None
         else:
             seq_num = self.next_seq_num
-            self.window.insert(self.next_seq_num, Frame(part, seq_num))
+            self.window[self.next_seq_num] = Frame(part, seq_num)
             self.next_seq_num = (self.next_seq_num + 1) % (MAX_SEQUENCE_NUM)
             return seq_num
 
